@@ -1,0 +1,386 @@
+.logo {
+    padding: 15px 28px;
+    width: 14vw;
+}
+.city-label {
+    background: transparent;
+    color: white;
+    /* border-radius: 5px; */
+    padding: 5px;
+    border: none;
+    font-size: 15px;
+}
+/* Add to your Map.css file */
+
+/* Hide default marker */
+.hidden-marker {
+    display: none;
+  }
+  
+  /* Pin marker container */
+  .custom-pin-marker {
+    width: 30px;
+    height: 42px;
+  }
+  
+  .pin-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  
+  /* Pin top (circular part) */
+  .pin-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: #114859;
+    border: 2px solid #fff;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+    z-index: 1;
+    overflow: hidden;
+  }
+  
+  /* Pin bottom (pointer part) */
+  .pin-bottom {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    width: 16px;
+    height: 25px;
+    background-color: #000;
+    border: 2px solid #fff;
+    transform: translateX(-50%) rotate(45deg);
+    transform-origin: 0 0;
+    border-radius: 0 50% 50% 50%;
+    box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.3);
+  }
+  
+  /* Multi-color pin styles */
+  .pin-top.multi-color {
+    position: relative;
+    overflow: hidden;
+    background-color: transparent;
+  }
+  
+  /* For two services (half and half) */
+  .color-half {
+    position: absolute;
+    top: 0;
+    width: 50%;
+    height: 100%;
+  }
+  
+  .color-half:first-child {
+    left: 0;
+  }
+  
+  .color-half:last-child {
+    right: 0;
+  }
+  
+  /* For more than two services */
+  .color-segment {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    clip-path: polygon(50% 50%, 50% 0, 100% 0, 100% 100%, 50% 100%);
+    transform-origin: center left;
+  }
+  
+  /* Popup styling */
+  .client-popup h3 {
+    margin-top: 0;
+    color: #114859;
+    font-size: 16px;
+  }
+  
+  .client-popup p {
+    margin: 5px 0;
+    font-size: 14px;
+  }
+  
+  .client-services ul {
+    margin: 5px 0;
+    padding-left: 20px;
+    list-style: none;
+  }
+  
+  .client-services li {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+  
+  .service-color-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+  
+  .error-message {
+    background-color: #ffdddd;
+    color: #d8000c;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+  }
+  
+  .loading-message {
+    background-color: #e8f4f8;
+    color: #114859;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+  }
+
+  /* Add this to your Map.css file */
+
+.region-legend-container {
+    background-color: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    margin: 10px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  
+  .region-legend {
+    font-size: 12px;
+  }
+  
+  .region-legend h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-weight: bold;
+  }
+  
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+  
+  .color-box {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+    margin-right: 5px;
+    border: 1px solid #ccc;
+  }
+  
+  .service-color-dot {
+    width: 10px;
+    height: 10px;
+    display: inline-block;
+    border-radius: 50%;
+    margin-right: 5px;
+  }
+  
+  .client-popup {
+    min-width: 200px;
+  }
+  
+  .client-popup h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+  }
+  
+  .client-services ul {
+    margin: 0;
+    padding-left: 10px;
+    list-style-type: none;
+  }
+  
+  .client-services li {
+    display: flex;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+
+  /* Map.css */
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  /* background-color: #1a1a1a; */
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: space-between;
+  border-bottom: 1px solid #333;
+}
+
+.logo {
+  height: 70px;
+  margin-right: 30px;
+}
+
+.service-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  flex-grow: 1;
+  /* margin-left: 180px; */
+}
+
+.service-button {
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.service-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.service-button.active {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.logout-button {
+  background-color: transparent;
+  color: white;
+  border: 1px solid white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.error-message, .loading-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 4px;
+  z-index: 1000;
+}
+
+.error-message {
+  background-color: rgba(220, 53, 69, 0.9);
+}
+
+.region-legend-container {
+  background-color: white;
+  padding: 10px;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 20px !important;
+  margin-right: 10px !important;
+}
+
+.region-legend h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.color-box {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  border-radius: 3px;
+}
+
+.client-popup {
+  min-width: 200px;
+}
+
+.client-popup h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.client-services ul {
+  padding-left: 20px;
+  margin-top: 5px;
+}
+
+.service-color-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+/* Hide default marker icon for custom styling */
+.hidden-marker {
+  display: none;
+}
+
+/* Animation for active markers */
+@keyframes markerJump {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+  100% { transform: translateY(0); }
+}
+
+.marker-jump {
+  animation: markerJump 0.5s ease;
+}
+
+/* Tooltip styling */
+.availability-tooltip {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 2px solid #333 !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+  min-width: 200px;
+}
+
+.service-availability {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.service-color-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+/* Marker tooltip styling */
+.leaflet-tooltip.availability-tooltip {
+  font-size: 14px;
+  line-height: 1.4;
+}
