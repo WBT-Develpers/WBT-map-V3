@@ -64,7 +64,6 @@ const MarkerRef = ({ position, icon, children, isActive, serviceId }) => {
     </Marker>
   );
 };
-
 const DynamicLabelSize = ({ setLabelSize }) => {
   const map = useMap();
   useEffect(() => {
@@ -80,7 +79,6 @@ const DynamicLabelSize = ({ setLabelSize }) => {
   }, [map, setLabelSize]);
   return null;
 };
-
 const REGION_COLORS = {
   'Scotland': '#d81e1e', 
   'North': '#f7db26', 
@@ -96,7 +94,6 @@ const REGION_COLORS = {
   'Yorkshire and the Humber': '#C1666B',
   'default': '#114859'  
 };
-
 const markerImages = {
   "#114859": dark_blue,
   "#555555": dark_gray,
@@ -129,18 +126,16 @@ const getClosestMarkerImage = (color) => {
 };
 const createMarkerIcon = (colors) => {
   let markerImage = colors.length > 1 ? multiplecolor : getClosestMarkerImage(colors[0]);
-
   return L.divIcon({
     html: `<div style="width: 30px; height: 42px; display: flex; align-items: center; justify-content: center;">
              <img src="${markerImage}" style="width: 100%; height: 100%; object-fit: contain;" />
            </div>`,
-    className: "", // Remove default styles
+    className: "", 
     iconSize: [30, 42],
     iconAnchor: [15, 42],
     popupAnchor: [0, -40],
   });
 };
-
 const Map = () => { 
   const [geoData, setGeoData] = useState(null);
   const [cityLabels, setCityLabels] = useState([]);
@@ -159,7 +154,6 @@ const Map = () => {
   const mapRef = useRef(null);
   const [locationSlots, setLocationSlots] = useState({});
   const [cityToLocationMap, setCityToLocationMap] = useState({});
-
   useEffect(() => {
     const styleElement = document.createElement('style');
     styleElement.innerHTML = jumpMarkerAnimation;
@@ -186,12 +180,10 @@ const Map = () => {
               .replace(/\s+/g, ' ')
               .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
               .trim();
-            console.log("DB City:", normalizedCity, "ID:", location.id); 
             regionMap[normalizedCity] = location.region;
             cityLocationMap[normalizedCity] = location.id;
           }
         });
-        console.log("CITY LOCATION MAP", cityLocationMap);
         setRegionData(regionMap);
         setCityToLocationMap(cityLocationMap);
       } catch (err) {
@@ -204,20 +196,37 @@ const Map = () => {
   useEffect(() => {
     const fetchLocationSlots = async () => {
       try {
-        const { data, error } = await supabase
+        const { data: slots, error } = await supabase
           .from('location_slot')
-          .select('id, location_id, service_id, number_of_slots, status');
+          .select(`
+            id, 
+            location_id, 
+            service_id, 
+            slot_number, 
+            status, 
+            client_id,
+            clients!inner(business_name)
+          `);
+  
         if (error) throw error;
         const slotMap = {};
-        data.forEach(slot => {
-          if (!slotMap[slot.location_id]) {
-            slotMap[slot.location_id] = {};
+        slots.forEach(slot => {
+          const locationId = slot.location_id;
+          const serviceId = slot.service_id;
+          if (!slotMap[locationId]) slotMap[locationId] = {};
+          if (!slotMap[locationId][serviceId]) {
+            slotMap[locationId][serviceId] = {
+              totalSlots: 2, 
+              usedSlots: 0,
+              businesses: []
+            };
           }
-          slotMap[slot.location_id][slot.service_id] = {
-            id: slot.id,
-            slots: slot.number_of_slots,
-            status: slot.status
-          };
+          if (slot.client_id) {
+            slotMap[locationId][serviceId].usedSlots += 1;
+            slotMap[locationId][serviceId].businesses.push({
+              name: slot.clients?.business_name || 'Unknown Business'
+            });
+          }
         });
         setLocationSlots(slotMap);
       } catch (err) {
@@ -225,10 +234,8 @@ const Map = () => {
         setError(prev => prev || err.message);
       }
     };
-
     fetchLocationSlots();
   }, []);
-
   useEffect(() => {
     const fetchServices = async () => {
       try {
@@ -249,7 +256,6 @@ const Map = () => {
     };
     fetchServices();
   }, []);
-
   useEffect(() => {
     const fetchClientServices = async () => {
       try {
@@ -272,7 +278,6 @@ const Map = () => {
     };
     fetchClientServices();
   }, []);
-
   useEffect(() => {
     const fetchClients = async () => {
       try {
@@ -295,7 +300,6 @@ const Map = () => {
     };
     fetchClients();
   }, []);
-
 useEffect(() => {
   if (USGeojson && Object.keys(cityToLocationMap).length > 0) {
     setGeoData(USGeojson);
@@ -330,30 +334,29 @@ useEffect(() => {
   }
 }, [USGeojson, cityToLocationMap, regionData]);
 
-  const getServiceAvailability = (locationId) => {
-    if (!locationId || !locationSlots[locationId]) {
-      return Object.entries(services).map(([id, service]) => ({
-        id,
-        name: service.name,
-        color: service.color,
-        slots: 0,
-        available: true
-      }));
-    }
-    return Object.entries(services).map(([id, service]) => {
-      const slotInfo = locationSlots[locationId][id];
-      const slotsUsed = slotInfo ? slotInfo.slots : 0;
-      const isAvailable = !slotInfo || slotInfo.status === 'available' && slotsUsed < 2;
-      return {
-        id,
-        name: service.name,
-        color: service.color,
-        slots: slotsUsed,
-        available: isAvailable
-      };
-    });
-  };
-
+const getServiceAvailability = (locationId) => {
+  if (!locationId || !locationSlots[locationId]) {
+    return Object.values(services).map(service => ({
+      ...service,
+      slots: 0,
+      available: true,
+      businesses: []
+    }));
+  }
+  return Object.values(services).map(service => {
+    const slotData = locationSlots[locationId][service.id] || {
+      totalSlots: 2,
+      usedSlots: 0,
+      businesses: []
+    };
+    return {
+      ...service,
+      slots: slotData.usedSlots, 
+      available: slotData.usedSlots < 2,
+      businesses: slotData.businesses
+    };
+  });
+};
   const getFeatureStyle = (feature) => {
     let region = "default";
     if (feature.properties && feature.properties.name) {
@@ -367,7 +370,6 @@ useEffect(() => {
       fillOpacity: 2
     };
   };
-
   const onEachFeature = (feature, layer) => {
     let region = "Unknown";
     if (feature.properties && feature.properties.name) {
@@ -375,57 +377,74 @@ useEffect(() => {
     }
     layer.on({
       mouseover: async (e) => {
-        if (feature.properties?.name) {
+        try {
+          if (!feature.properties?.name) return;
           const cityName = feature.properties.name
-          .toLowerCase()
-          .replace(/ and | & /g, ' & ')
-          .replace(/[-/]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
-          .trim();
-          console.log("GeoJSON City (normalized):", cityName);
-          console.log("Available keys in cityToLocationMap:", Object.keys(cityToLocationMap));
+            .toLowerCase()
+            .replace(/ and | & /g, ' & ')
+            .replace(/[-/]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
+            .trim();
           const locationId = cityToLocationMap[cityName];
-          console.log("LOCATION ID", locationId);
-          if (locationId) {
-            const serviceAvailability = getServiceAvailability(locationId);
+          if (!locationId) {
+            console.log('No location ID found for:', cityName);
+            layer.bindPopup(`<strong>${feature.properties.name}</strong>`);
+            return;
+          }
+          const serviceAvailability = await getServiceAvailability(locationId);
+          const filteredServices = selectedService 
+            ? serviceAvailability.filter(service => service.id === selectedService)
+            : serviceAvailability;
             let popupContent = `
               <div class="location-popup">
                 <h3>${feature.properties.name}</h3>
                 <div class="service-availability">
-                  <p><strong>Service Availability:</strong></p>
                   <ul>
             `;
-            serviceAvailability.forEach(service => {
-              console.log("MOUSEOVER", service) 
+            filteredServices.forEach(service => {
+              console.log('Processing service:', service);
               popupContent += `
-                <li>
-                  <span class="service-status ${service.available ? 'available' : 'full'}" 
-                        style="background-color: ${service.color}"></span>
-                  ${service.name}: ${service.slots}/2 slots used
-                  ${service.available ? '(Available)' : '(FULL)'}
+                <li class="service-item">
+                  <div class="service-header">
+                    <span class="service-name">${service.name}</span>
+                    <span class="slot-count">${service.slots}/2 slots</span>
+                  </div>
+                  ${service.businesses.map(business => 
+                    `
+                    <div class="business-entry">
+                      <span class="service-dot" 
+                            style="background-color: ${service.color}"></span>
+                      <span class="business-name">${business.name}</span>
+                    </div>
+                  `).join('')}
                 </li>
               `;
             });
-            popupContent += `
+          popupContent += `
                 </ul>
               </div>
             </div>
-            `;
-            layer.bindPopup(popupContent);
-            layer.openPopup();
-          } else {
-            layer.bindPopup(`<strong>${feature.properties.name}</strong>`);
+          `;
+          layer.bindPopup(popupContent);
+          if (selectedService) {
             layer.openPopup();
           }
+        } catch (err) {
+          console.error('Error updating popup:', err);
+          layer.bindPopup(`<strong>${feature.properties.name}</strong><br>Error loading data`);
+        }
+      },
+      mouseout: (e) => {
+        if (layer._popup) {
+          layer.closePopup();
         }
       },
       click: (e) => {
-        if (feature.properties && feature.properties.name) {
-          // We'll keep the mouseover behavior for click as well
-          // The mouseover event will handle showing the availability
+        if (feature.properties?.name) {
+          layer.openPopup();
         }
-      },
+      }
     });
   };
   const getClientServiceColors = (clientId) => {
@@ -436,7 +455,6 @@ useEffect(() => {
       .filter(color => color); 
     return colors.length > 0 ? colors : ['#114859'];
   };
-
   const getClientServiceNames = (clientId) => {
     if (!clientServices[clientId] || !services) return []; 
     
@@ -444,7 +462,6 @@ useEffect(() => {
       .map(id => services[id]?.name)
       .filter(name => name); 
   };
-
   const RegionLegend = () => {
     return (
       <div className="region-legend">
@@ -458,7 +475,6 @@ useEffect(() => {
       </div>
     );
   };
-
   const handleServiceClick = (serviceId) => {
     if (selectedService === serviceId) {
       setSelectedService(null);
@@ -473,8 +489,10 @@ useEffect(() => {
       }
     });
     setActiveMarkers(clientsWithService);
+    if (mapRef.current) {
+      const map = mapRef.current;
+    }
   };
-
   const filteredClients = useMemo(() => {
     if (!selectedService) return clients; 
     return clients.filter(client => {
@@ -482,13 +500,11 @@ useEffect(() => {
       return serviceIds.includes(selectedService);
     });
   }, [clients, clientServices, selectedService]);
-
   const isClientVisible = (clientId) => {
     if (!selectedService) return true; 
     const serviceIds = clientServices[clientId] || [];
     return serviceIds.includes(selectedService);
   };
-  
   const ServiceButtons = () => {
     return (
       <div className="service-buttons">
@@ -498,13 +514,7 @@ useEffect(() => {
             onClick={() => handleServiceClick(service.id)}
             className={`service-button ${selectedService === service.id ? 'active' : ''}`}
             style={{ 
-              backgroundColor: service.color,
-              color: '#fff',
-              border: selectedService === service.id ? '2px solid white' : 'none',
-              padding: '8px 16px',
-              margin: '0 8px',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              color: service.color
             }}
           >
             {service.name}
@@ -513,7 +523,6 @@ useEffect(() => {
       </div>
     );
   };
-  
   const shouldAnimateMarker = (clientId) => {
     return activeMarkers.includes(clientId);
   };
@@ -540,6 +549,7 @@ useEffect(() => {
         <DynamicLabelSize setLabelSize={setLabelSize} />
         {geoData && (
           <GeoJSON
+            key={selectedService}
             data={geoData}
             style={getFeatureStyle}
             onEachFeature={onEachFeature}
@@ -563,7 +573,6 @@ useEffect(() => {
                 <div className="client-popup">
                   <h3>{client.business_name}</h3>
                   <p><strong>Country:</strong> {client.country}</p>
-                  <p><strong>Max Slots:</strong> {client.max_slots_per_service}</p>
                   {serviceNames.length > 0 && (
                     <div className="client-services">
                       <p><strong>Services:</strong></p>

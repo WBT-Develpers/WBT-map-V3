@@ -1,3 +1,5 @@
+/* Map.css */
+
 .logo {
     padding: 15px 28px;
     width: 14vw;
@@ -220,8 +222,7 @@
   display: flex;
   align-items: center;
   padding: 10px 20px;
-  /* background-color: #1a1a1a; */
-  width: 100%;
+    width: 100%;
   box-sizing: border-box;
   justify-content: space-between;
   border-bottom: 1px solid #333;
@@ -232,17 +233,41 @@
   margin-right: 30px;
 }
 
+.service-button {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
 .service-buttons {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  flex-grow: 1;
-  /* margin-left: 180px; */
+  gap: 4px;
+  padding: 0 20px;
 }
 
-.service-button {
-  transition: all 0.2s ease;
-  font-weight: 500;
+.service-button::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+}
+
+.service-button:hover::after {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.service-button.active::after {
+  background-color: currentColor;
 }
 
 .service-button:hover {
@@ -253,6 +278,11 @@
 .service-button.active {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.service-button:hover:not(.active) {
+  background-color: rgba(0,0,0,0.05) !important;
+  bottom: -1px !important;
 }
 
 .logout-button {
@@ -339,12 +369,10 @@
   margin-right: 5px;
 }
 
-/* Hide default marker icon for custom styling */
 .hidden-marker {
   display: none;
 }
 
-/* Animation for active markers */
 @keyframes markerJump {
   0% { transform: translateY(0); }
   50% { transform: translateY(-20px); }
@@ -355,7 +383,6 @@
   animation: markerJump 0.5s ease;
 }
 
-/* Tooltip styling */
 .availability-tooltip {
   background: rgba(255, 255, 255, 0.95) !important;
   border: 2px solid #333 !important;
@@ -383,4 +410,52 @@
 .leaflet-tooltip.availability-tooltip {
   font-size: 14px;
   line-height: 1.4;
+}
+
+.service-item {
+  margin-bottom: 15px;
+}
+.service-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.business-entry {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+}
+.business-name {
+  font-size: 0.9em;
+}
+.service-header {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0;
+}
+.slot-count {
+  font-size: 0.9em;
+  color: #666;
+}
+.businesses-list {
+  list-style: none;
+  padding-left: 15px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+}
+
+.businesses-list li {
+  margin-bottom: 3px;
+  font-size: 0.9em;
+}
+
+.service-color-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
 }
