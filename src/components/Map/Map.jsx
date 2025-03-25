@@ -19,9 +19,7 @@ import orange from "../../assets/markersImage/orange.png";
 import pink from "../../assets/markersImage/pink.png";
 import red from "../../assets/markersImage/red.png";
 import yellow from "../../assets/markersImage/yellow.png";
-
 L.Marker.prototype.options.icon = L.divIcon({className: 'hidden-marker'});
-
 const jumpMarkerAnimation = `
   @keyframes markerJump {
     0% { transform: translateY(0); }
@@ -32,7 +30,6 @@ const jumpMarkerAnimation = `
     animation: markerJump 0.5s ease;
   }
 `;
-
 const MarkerRef = ({ position, icon, children, isActive, serviceId }) => {
   const markerRef = useRef(null);
   useEffect(() => {
@@ -67,6 +64,7 @@ const MarkerRef = ({ position, icon, children, isActive, serviceId }) => {
 const DynamicLabelSize = ({ setLabelSize }) => {
   const map = useMap();
   useEffect(() => {
+
     const updateSize = () => {
       const zoom = map.getZoom();
       setLabelSize(`${zoom * 2}px`); 
@@ -78,6 +76,74 @@ const DynamicLabelSize = ({ setLabelSize }) => {
     };
   }, [map, setLabelSize]);
   return null;
+};
+const ClientSearch = ({ clients, onSelectClient, mapRef }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showResults, setShowResults] = useState(false);
+  useEffect(() => {
+    if (searchTerm.length >= 2) {
+      const results = clients.filter(client => 
+        client.business_name.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 5); 
+      setSearchResults(results);
+      setShowResults(true);
+    } else {
+      setSearchResults([]);
+      setShowResults(false);
+    }
+  }, [searchTerm, clients]);
+  const handleSelectClient = (client) => {
+    onSelectClient(client);
+    setSearchTerm(client.business_name);
+    setShowResults(false);
+    if (mapRef.current && client.lat && client.lang) {
+      const map = mapRef.current;
+      map.flyTo(
+        [parseFloat(client.lat), parseFloat(client.lang)], 
+        10,
+        { duration: 1.5 } 
+      );
+    }
+  };
+  return (
+    <div className="client-search-container">
+      <div className="search-input-wrapper">
+        <input
+          type="text"
+          placeholder="Search clients..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onFocus={() => searchResults.length > 0 && setShowResults(true)}
+          className="client-search-input"
+        />
+        {searchTerm && (
+          <button 
+            className="clear-search-button"
+            onClick={() => {
+              setSearchTerm('');
+              setShowResults(false);
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {showResults && searchResults.length > 0 && (
+        <ul className="search-results">
+          {searchResults.map(client => (
+            <li 
+              key={client.id} 
+              onClick={() => handleSelectClient(client)}
+              className="search-result-item"
+            >
+              {client.business_name}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 };
 const REGION_COLORS = {
   'Scotland': '#d81e1e', 
@@ -154,6 +220,7 @@ const Map = () => {
   const mapRef = useRef(null);
   const [locationSlots, setLocationSlots] = useState({});
   const [cityToLocationMap, setCityToLocationMap] = useState({});
+  const [selectedClient, setSelectedClient] = useState(null);
   useEffect(() => {
     const styleElement = document.createElement('style');
     styleElement.innerHTML = jumpMarkerAnimation;
@@ -207,7 +274,6 @@ const Map = () => {
             client_id,
             clients!inner(business_name)
           `);
-  
         if (error) throw error;
         const slotMap = {};
         slots.forEach(slot => {
@@ -269,7 +335,7 @@ const Map = () => {
             clientServiceMap[cs.client_id] = [];
           }
           clientServiceMap[cs.client_id].push(cs.service_id);
-        });
+        });                               
         setClientServices(clientServiceMap);
       } catch (err) {
         console.error("Error fetching client services:", err);
@@ -300,63 +366,70 @@ const Map = () => {
     };
     fetchClients();
   }, []);
-useEffect(() => {
-  if (USGeojson && Object.keys(cityToLocationMap).length > 0) {
-    setGeoData(USGeojson);
-    const labels = USGeojson.features
-      .filter((feature) => feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon")
-      .map((feature) => {
-        const centroid = turf.centroid(feature);
-        return {
-          name: feature.properties.name,
-          coordinates: centroid.geometry.coordinates.reverse(),
-        };
-      });
-    setCityLabels(labels);
-    const geojsonLayer = L.geoJSON(USGeojson);
-    setBounds(geojsonLayer.getBounds());
-    const featureMap = {};
-    USGeojson.features.forEach(feature => {
-      if (feature.properties && feature.properties.name) {
-        const cityName = feature.properties.name
-          .toLowerCase()
-          .replace(/ and /g, ' & ')
-          .replace(/[-/]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
-          .trim();
-        if (cityToLocationMap[cityName]) {
-          featureMap[feature.properties.name] = regionData[cityName];
+  useEffect(() => {
+    if (USGeojson && Object.keys(cityToLocationMap).length > 0) {
+      setGeoData(USGeojson);
+      const labels = USGeojson.features
+        .filter((feature) => feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon")
+        .map((feature) => {
+          const centroid = turf.centroid(feature);
+          return {
+            name: feature.properties.name,
+            coordinates: centroid.geometry.coordinates.reverse(),
+          };
+        });
+      setCityLabels(labels);
+      const geojsonLayer = L.geoJSON(USGeojson);
+      setBounds(geojsonLayer.getBounds());
+      const featureMap = {};
+      USGeojson.features.forEach(feature => {
+        if (feature.properties && feature.properties.name) {
+          const cityName = feature.properties.name
+            .toLowerCase()
+            .replace(/ and /g, ' & ')
+            .replace(/[-/]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
+            .trim();
+          if (cityToLocationMap[cityName]) {
+            featureMap[feature.properties.name] = regionData[cityName];
+          }
         }
-      }
+      });
+      setFeatureRegionMap(featureMap);
+    }
+  }, [USGeojson, cityToLocationMap, regionData]);
+useEffect(() => {
+    if (selectedClient) {
+      setActiveMarkers(prev => [...prev, selectedClient.id]);
+      setTimeout(() => {
+        setActiveMarkers(prev => prev.filter(id => id !== selectedClient.id));
+      }, 2000);
+    }
+}, [selectedClient]);
+  const getServiceAvailability = (locationId) => {
+    if (!locationId || !locationSlots[locationId]) {
+      return Object.values(services).map(service => ({
+        ...service,
+        slots: 0,
+        available: true,
+        businesses: []
+      }));
+    }
+    return Object.values(services).map(service => {
+      const slotData = locationSlots[locationId][service.id] || {
+        totalSlots: 2,
+        usedSlots: 0,
+        businesses: []
+      };
+      return {
+        ...service,
+        slots: slotData.usedSlots, 
+        available: slotData.usedSlots < 2,
+        businesses: slotData.businesses
+      };
     });
-    setFeatureRegionMap(featureMap);
-  }
-}, [USGeojson, cityToLocationMap, regionData]);
-
-const getServiceAvailability = (locationId) => {
-  if (!locationId || !locationSlots[locationId]) {
-    return Object.values(services).map(service => ({
-      ...service,
-      slots: 0,
-      available: true,
-      businesses: []
-    }));
-  }
-  return Object.values(services).map(service => {
-    const slotData = locationSlots[locationId][service.id] || {
-      totalSlots: 2,
-      usedSlots: 0,
-      businesses: []
-    };
-    return {
-      ...service,
-      slots: slotData.usedSlots, 
-      available: slotData.usedSlots < 2,
-      businesses: slotData.businesses
-    };
-  });
-};
+  };
   const getFeatureStyle = (feature) => {
     let region = "default";
     if (feature.properties && feature.properties.name) {
@@ -408,7 +481,6 @@ const getServiceAvailability = (locationId) => {
                 <li class="service-item">
                   <div class="service-header">
                     <span class="service-name">${service.name}</span>
-                    <span class="slot-count">${service.slots}/2 slots</span>
                   </div>
                   ${service.businesses.map(business => 
                     `
@@ -489,9 +561,6 @@ const getServiceAvailability = (locationId) => {
       }
     });
     setActiveMarkers(clientsWithService);
-    if (mapRef.current) {
-      const map = mapRef.current;
-    }
   };
   const filteredClients = useMemo(() => {
     if (!selectedService) return clients; 
@@ -526,14 +595,23 @@ const getServiceAvailability = (locationId) => {
   const shouldAnimateMarker = (clientId) => {
     return activeMarkers.includes(clientId);
   };
+  const handleClientSelect = (client) => {
+    setSelectedClient(client);
+  };
   return (
     <div>
       <div className="header">
-        <div>
+        <div className="header-left">
           <img className="logo" src={Logo} alt="Logo" /> 
-           <ServiceButtons />
+          <ClientSearch 
+            clients={clients} 
+            onSelectClient={handleClientSelect}
+            mapRef={mapRef} 
+          />
         </div>
-        <button className="logout-button">Logout</button>
+        <div className="header-right">
+          <ServiceButtons />
+        </div>
       </div>
       {error && <div className="error-message">Error loading data: {error}</div>}
       {loading && <div className="loading-message">Loading map data...</div>}
@@ -628,6 +706,81 @@ const getServiceAvailability = (locationId) => {
         }
         .service-availability li {
           margin-bottom: 5px;
+        }
+        
+        /* Search bar styling */
+        .client-search-container {
+          position: relative;
+          width: 300px;
+          margin-left: 20px; 
+        }
+        
+        .search-input-wrapper {
+          position: relative;
+        }
+        
+        .client-search-input {
+          width: 100%;
+          padding: 10px 15px;
+          border: 2px solid var(--border-color);
+          border-radius: 8px;
+          font-size: 16px;
+          background-color: white;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          position: static; 
+          right: auto; 
+          width: 100%; 
+        }
+        
+        .client-search-input:focus {
+          outline: none;
+          border-color: var(--secondary-color);
+          box-shadow: 0 2px 8px rgba(44, 125, 160, 0.2);
+        }
+
+        .clear-search-button {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: none;
+          border: none;
+          font-size: 16px;
+          cursor: pointer;
+          color: #888;
+        }
+        
+        .search-results {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          width: 100%;
+          max-height: 200px;
+          overflow-y: auto;
+          background-color: white;
+          border: 1px solid #ccc;
+          border-top: none;
+          border-radius: 0 0 4px 4px;
+          z-index: 1000;
+          padding: 0;
+          margin: 0;
+          list-style: none;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .search-result-item {
+          padding: 8px 12px;
+          cursor: pointer;
+          border-bottom: 1px solid #eee;
+        }
+        
+        .search-result-item:last-child {
+          border-bottom: none;
+        }
+        
+        .search-result-item:hover {
+          background-color: #f5f5f5;
         }
       `}</style>
     </div>
