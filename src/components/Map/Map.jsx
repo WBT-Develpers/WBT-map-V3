@@ -1,11 +1,10 @@
 import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, Popup, useMap } from "react-leaflet";
-import { useEffect, useState, useMemo, useRef } from "react";
-import * as turf from "@turf/turf";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import "leaflet/dist/leaflet.css";
-import USGeojson from "../../assets/gb.json";
 import Logo from "../../assets/logo.png";
 import "./Map.css";
 import L from "leaflet";
+import { centroid, point, booleanPointInPolygon } from '@turf/turf';
 import { supabase } from "../../utils/supabaseClient";
 import dark_blue from "../../assets/markersImage/dark_blue.png";
 import dark_gray from "../../assets/markersImage/dark_gray.png";
@@ -61,20 +60,22 @@ const MarkerRef = ({ position, icon, children, isActive, serviceId }) => {
     </Marker>
   );
 };
-const DynamicLabelSize = ({ setLabelSize }) => {
+const DynamicLabelSize = () => {
   const map = useMap();
   useEffect(() => {
-
     const updateSize = () => {
-      const zoom = map.getZoom();
-      setLabelSize(`${zoom * 2}px`); 
+      const labels = document.querySelectorAll('.postcode-label div');
+      labels.forEach(label => {
+        label.style.fontSize = '14px';
+        label.style.transform = 'scale(1)';
+      });
     };
     map.on("zoomend", updateSize);
     updateSize(); 
     return () => {
       map.off("zoomend", updateSize);
     };
-  }, [map, setLabelSize]);
+  }, [map]);
   return null;
 };
 const ClientSearch = ({ clients, onSelectClient, mapRef }) => {
@@ -105,6 +106,29 @@ const ClientSearch = ({ clients, onSelectClient, mapRef }) => {
         { duration: 1.5 } 
       );
     }
+  };
+  const getServiceAvailability = (locationId, services, locationSlots) => {
+    if (!locationId || !locationSlots[locationId]) {
+      return Object.values(services).map(service => ({
+        ...service,
+        slots: 0,
+        available: true,
+        businesses: []
+      }));
+    }
+    return Object.values(services).map(service => {
+      const slotData = locationSlots[locationId][service.id] || {
+        totalSlots: 2,
+        usedSlots: 0,
+        businesses: []
+      };
+      return {
+        ...service,
+        slots: slotData.usedSlots, 
+        available: slotData.usedSlots < 2,
+        businesses: slotData.businesses
+      };
+    });
   };
   return (
     <div className="client-search-container">
@@ -150,15 +174,12 @@ const REGION_COLORS = {
   'North': '#f7db26', 
   'North West': '#65d1f9', 
   'Midlands': '#f18315', 
-  'East Midlands': '#c2c0be', 
   'Wales': '#e97ccb', 
-  'South West England': '#44f02c', 
-  'South East England': '#b68d03', 
+  'South West ': '#44f02c', 
+  'South East': '#b68d03', 
   'Northern Ireland': '#7b7a75', 
-  'London': '#5671e8', 
-  'North East England': '#37423D', 
-  'Yorkshire and the Humber': '#C1666B',
-  'default': '#114859'  
+  'East Anglia': '#7b7a75',
+  'default': '#cccccc'  // Add a default color
 };
 const markerImages = {
   "#114859": dark_blue,
@@ -202,25 +223,348 @@ const createMarkerIcon = (colors) => {
     popupAnchor: [0, -40],
   });
 };
+const importAllGeojsons = () => {
+  const modules = import.meta.glob('../../assets/UK_geojsons/*.geojson', { 
+    eager: true, 
+    query: '?raw',
+    import: 'default'
+  });
+  return Object.entries(modules).map(([path, content]) => {
+    const fileName = path.split('/').pop().replace('.geojson', '').toUpperCase();
+    try {
+      return { ...JSON.parse(content), fileName };
+    } catch (error) {
+      console.error('Error parsing GeoJSON:', error);
+      return null;
+    }
+  }).filter(Boolean);
+};
+
+const geojsonFiles = importAllGeojsons();
+
+// Add these constants at the top level
+const DEFAULT_CENTER = [54.5, -2.5];
+const DEFAULT_ZOOM = 6;
+const CLUSTER_OPTIONS = {
+  maxClusterRadius: 50,
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  zoomToBoundsOnClick: true,
+  disableClusteringAtZoom: 15
+};
+
 const Map = () => { 
-  const [geoData, setGeoData] = useState(null);
-  const [cityLabels, setCityLabels] = useState([]);
-  const [labelSize, setLabelSize] = useState("12px");
-  const [bounds, setBounds] = useState(null);
   const [clients, setClients] = useState([]);
   const [services, setServices] = useState({});
-  const [servicesList, setServicesList] = useState([]);
   const [clientServices, setClientServices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [regionData, setRegionData] = useState({});
-  const [featureRegionMap, setFeatureRegionMap] = useState({});
   const [selectedService, setSelectedService] = useState(null);
   const [activeMarkers, setActiveMarkers] = useState([]);
   const mapRef = useRef(null);
   const [locationSlots, setLocationSlots] = useState({});
   const [cityToLocationMap, setCityToLocationMap] = useState({});
   const [selectedClient, setSelectedClient] = useState(null);
+  const [postcodeMap, setPostcodeMap] = useState({});
+
+  const processedGeoData = useMemo(() => {
+    if (!geojsonFiles.length || Object.keys(postcodeMap).length === 0) return [];
+    
+    return geojsonFiles.map(geojsonData => {
+      const postcodeInitials = geojsonData.fileName; 
+      const locationData = postcodeMap[postcodeInitials]; 
+      
+      const features = geojsonData.features.map(feature => {
+        feature.properties.postcodeInitials = postcodeInitials; 
+        if (locationData) {
+          feature.properties.region = locationData.region;
+          feature.properties.color = REGION_COLORS[locationData.region] || REGION_COLORS.default;
+          feature.properties.locationId = locationData.id;
+        } else {
+          feature.properties.region = 'default';
+          feature.properties.color = REGION_COLORS.default;
+        }
+        return feature;
+      });
+      
+      return { ...geojsonData, features };
+    });
+  }, [geojsonFiles, postcodeMap]);
+
+  // Memoize the bounds calculation
+  const mapBounds = useMemo(() => {
+    if (!processedGeoData.length) return null;
+    const geojsonLayer = L.geoJSON(processedGeoData);
+    return geojsonLayer.getBounds();
+  }, [processedGeoData]);
+
+  // Memoize the feature style function
+  const getFeatureStyle = useCallback((feature) => {
+    const color = feature.properties?.color || REGION_COLORS.default;
+    return {
+      color: "#ffffff",
+      weight: 1,
+      fillColor: color,
+      fillOpacity: 1
+    };
+  }, []);
+
+  // Memoize the onEachFeature function
+  const getServiceAvailability = useCallback((locationId) => {
+    if (!locationId || !locationSlots[locationId]) {
+      return Object.values(services).map(service => ({
+        ...service,
+        slots: 0,
+        available: true,
+        businesses: []
+      }));
+    }
+    return Object.values(services).map(service => {
+      const slotData = locationSlots[locationId][service.id] || {
+        totalSlots: 2,
+        usedSlots: 0,
+        businesses: []
+      };
+      return {
+        ...service,
+        slots: slotData.usedSlots, 
+        available: slotData.usedSlots < 2,
+        businesses: slotData.businesses
+      };
+    });
+  }, [services, locationSlots]);
+
+  const findLabelPosition = (feature) => {
+    try {
+      // Get the polygon's bounds
+      const bounds = L.geoJSON(feature).getBounds();
+      const center = bounds.getCenter();
+      
+      // Create a point feature for the center
+      const centerPoint = point([center.lng, center.lat]);
+      
+      // Check if the center point is inside the polygon
+      if (booleanPointInPolygon(centerPoint, feature)) {
+        return [center.lat, center.lng];
+      }
+      
+      // If center is not inside, try to find a point that is
+      const points = [
+        bounds.getCenter(),
+        bounds.getNorthWest(),
+        bounds.getNorthEast(),
+        bounds.getSouthWest(),
+        bounds.getSouthEast()
+      ];
+      
+      for (let pt of points) {
+        const pointFeature = point([pt.lng, pt.lat]);
+        if (booleanPointInPolygon(pointFeature, feature)) {
+          return [pt.lat, pt.lng];
+        }
+      }
+      
+      // If no point found, return the center as fallback
+      return [center.lat, center.lng];
+    } catch (error) {
+      console.error('Error finding label position:', error);
+      return null;
+    }
+  };
+
+  const onEachFeature = useCallback((feature, layer) => {
+    layer.on({
+      add: (e) => {
+        if (feature.properties.postcodeInitials) {
+          const labelPosition = findLabelPosition(feature);
+          
+          if (labelPosition) {
+            const label = L.marker(labelPosition, {
+              icon: L.divIcon({
+                className: 'postcode-label',
+                html: `<div style="
+                  padding: 4px 8px;
+                  font-size: 14px;
+                  font-weight: bold;
+                  color: #333;
+                  white-space: nowrap;
+                  line-height: 1;
+                ">${feature.properties.postcodeInitials}</div>`,
+                iconSize: [60, 30],
+                iconAnchor: [30, 15]
+              }),
+              interactive: false,
+              zIndexOffset: 1000
+            });
+            label.addTo(e.target._map);
+          }
+        }
+      },
+      mouseover: async (e) => {
+        try {
+          const locationId = feature.properties.locationId;
+          const locationData = postcodeMap[feature.properties.postcodeInitials];
+          
+          if (!locationId || !locationData) {
+            layer.bindPopup(`<strong>${locationData?.city_name || 'Unknown Location'}</strong>`);
+            layer.openPopup();
+            return;
+          }
+
+          let popupContent = `
+            <div class="location-services-popup">
+              <h3 style="text-align: center;">${locationData.city_name}</h3>
+              <hr>
+              <div class="location-details">
+                <p><strong>Region:</strong> ${locationData.region}</p>
+                <p><strong>Postcode Area:</strong> ${feature.properties.postcodeInitials}</p>
+              </div>
+              <hr>
+          `;
+
+          const servicesByClient = {};
+          const locationSpecificSlots = locationSlots[locationId] || {};
+          const availableServices = Object.values(services)
+            .filter(service => {
+              // If no service is selected or 'all' is selected, show all services
+              if (!selectedService || selectedService === 'all') return true;
+              // Otherwise, only show the selected service
+              return service.id === selectedService;
+            })
+            .map(service => {
+              const serviceSlots = locationSpecificSlots[service.id] || {
+                totalSlots: 2,
+                usedSlots: 0,
+                businesses: []
+              };
+              return {
+                ...service,
+                slots: serviceSlots.usedSlots,
+                totalSlots: serviceSlots.totalSlots,
+                businesses: serviceSlots.businesses
+              };
+            });
+
+          // Group services by client
+          availableServices.forEach(service => {
+            service.businesses.forEach(business => {
+              if (!servicesByClient[business.name]) {
+                servicesByClient[business.name] = [];
+              }
+              servicesByClient[business.name].push({
+                serviceName: service.name,
+                serviceColor: service.color,
+                slotsUsed: service.slots,
+                totalSlots: service.totalSlots
+              });
+            });
+          });
+
+          popupContent += `
+            <div class="services-list">
+              <h4>${selectedService === 'all' ? 'All Available Services' : 
+                   selectedService ? `Available ${services[selectedService]?.name || 'Services'}` : 
+                   'Available Services'}</h4>
+          `;
+
+          if (Object.keys(servicesByClient).length === 0) {
+            popupContent += '<p>No services currently available in this location.</p>';
+          } else {
+            Object.entries(servicesByClient).forEach(([clientName, clientServices]) => {
+              popupContent += `
+                <div class="client-services">
+                  <h4>${clientName}</h4>
+                  <ul>
+              `;
+              clientServices.forEach(service => {
+                const availabilityClass = service.slotsUsed >= service.totalSlots ? 'service-full' : 'service-available';
+                popupContent += `
+                  <li>
+                    <span class="service-dot ${availabilityClass}" style="background-color: ${service.serviceColor}"></span>
+                    ${service.serviceName} 
+                    (${service.slotsUsed}/${service.totalSlots} slots)
+                  </li>
+                `;
+              });
+              popupContent += `
+                  </ul>
+                </div>
+              `;
+            });
+          }
+
+          popupContent += `
+            </div>
+          </div>`;
+
+          layer.bindPopup(popupContent, {
+            maxWidth: 300,
+            className: 'location-services-tooltip'
+          });
+          layer.openPopup(e.latlng);
+        } catch (err) {
+          console.error('Error updating popup:', err);
+          layer.bindPopup(`<strong>Unknown Location</strong><br>Error loading data`);
+          layer.openPopup(e.latlng);
+        }
+      },
+      mouseout: () => {
+        if (layer._popup && !layer._popup._isOpen) {
+          layer.closePopup();
+        }
+      },
+      click: (e) => {
+        if ((selectedService === 'all' || selectedService) && layer._popup) {
+          layer.openPopup(e.latlng);
+        }
+      }
+    });
+  }, [selectedService, getServiceAvailability, postcodeMap, locationSlots, services]);
+
+  // Memoize the GeoJSON layers rendering
+  const renderGeoJSONLayers = useCallback(() => {
+    return processedGeoData.map((data, index) => (
+      <GeoJSON
+        key={`geojson-${index}`}
+        data={data}
+        style={getFeatureStyle}
+        onEachFeature={onEachFeature}
+      />
+    ));
+  }, [processedGeoData, getFeatureStyle, onEachFeature]);
+
+  // Memoize the filtered clients
+  const filteredClients = useMemo(() => {
+    if (!selectedService) return clients;
+    if (selectedService === 'all') return clients;
+    return clients.filter(client => {
+      const serviceIds = clientServices[client.id] || [];
+      return serviceIds.includes(selectedService);
+    });
+  }, [clients, clientServices, selectedService]);
+
+  useEffect(() => {
+    if (processedGeoData.length > 0 && Object.keys(cityToLocationMap).length > 0) {
+      const featureMap = {};
+      processedGeoData.forEach(geojsonData => {
+        geojsonData.features.forEach(feature => {
+          if (feature.properties && feature.properties.name) {
+            const cityName = feature.properties.name
+              .toLowerCase()
+              .replace(/ and /g, ' & ')
+              .replace(/[-/]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
+              .trim();
+            if (cityToLocationMap[cityName]) {
+              featureMap[feature.properties.name] = regionData[cityName];
+            }
+          }
+        });
+      });
+    }
+  }, [processedGeoData, cityToLocationMap, regionData]);
   useEffect(() => {
     const styleElement = document.createElement('style');
     styleElement.innerHTML = jumpMarkerAnimation;
@@ -232,30 +576,21 @@ const Map = () => {
   useEffect(() => {
     const fetchRegionData = async () => {
       try {
-        const { data, error } = await supabase
-          .from('location')
-          .select('id, city, region');
-        if (error) throw error;
-        const regionMap = {};
-        const cityLocationMap = {};
+        const { data } = await supabase
+          .from('locations')
+          .select('id, region, postcode_initials, city_name');
+        
+        const postcodeMap = {};
         data.forEach(location => {
-          if (location.city) {
-            const normalizedCity = location.city
-              .toLowerCase()
-              .replace(/ and /g, ' & ')
-              .replace(/[-/]/g, ' ')
-              .replace(/\s+/g, ' ')
-              .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
-              .trim();
-            regionMap[normalizedCity] = location.region;
-            cityLocationMap[normalizedCity] = location.id;
-          }
+          postcodeMap[location.postcode_initials] = {
+            region: location.region,
+            id: location.id,
+            city_name: location.city_name
+          };
         });
-        setRegionData(regionMap);
-        setCityToLocationMap(cityLocationMap);
+        setPostcodeMap(postcodeMap);
       } catch (err) {
         console.error("Error fetching region data:", err);
-        setError(prev => prev || err.message);
       }
     };
     fetchRegionData();
@@ -314,7 +649,6 @@ const Map = () => {
           serviceMap[service.id] = service;
         });
         setServices(serviceMap);
-        setServicesList(data); 
       } catch (err) {
         console.error("Error fetching services:", err);
         setError(prev => prev || err.message);
@@ -367,39 +701,6 @@ const Map = () => {
     fetchClients();
   }, []);
   useEffect(() => {
-    if (USGeojson && Object.keys(cityToLocationMap).length > 0) {
-      setGeoData(USGeojson);
-      const labels = USGeojson.features
-        .filter((feature) => feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon")
-        .map((feature) => {
-          const centroid = turf.centroid(feature);
-          return {
-            name: feature.properties.name,
-            coordinates: centroid.geometry.coordinates.reverse(),
-          };
-        });
-      setCityLabels(labels);
-      const geojsonLayer = L.geoJSON(USGeojson);
-      setBounds(geojsonLayer.getBounds());
-      const featureMap = {};
-      USGeojson.features.forEach(feature => {
-        if (feature.properties && feature.properties.name) {
-          const cityName = feature.properties.name
-            .toLowerCase()
-            .replace(/ and /g, ' & ')
-            .replace(/[-/]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
-            .trim();
-          if (cityToLocationMap[cityName]) {
-            featureMap[feature.properties.name] = regionData[cityName];
-          }
-        }
-      });
-      setFeatureRegionMap(featureMap);
-    }
-  }, [USGeojson, cityToLocationMap, regionData]);
-useEffect(() => {
     if (selectedClient) {
       setActiveMarkers(prev => [...prev, selectedClient.id]);
       setTimeout(() => {
@@ -407,133 +708,6 @@ useEffect(() => {
       }, 2000);
     }
 }, [selectedClient]);
-  const getServiceAvailability = (locationId) => {
-    if (!locationId || !locationSlots[locationId]) {
-      return Object.values(services).map(service => ({
-        ...service,
-        slots: 0,
-        available: true,
-        businesses: []
-      }));
-    }
-    return Object.values(services).map(service => {
-      const slotData = locationSlots[locationId][service.id] || {
-        totalSlots: 2,
-        usedSlots: 0,
-        businesses: []
-      };
-      return {
-        ...service,
-        slots: slotData.usedSlots, 
-        available: slotData.usedSlots < 2,
-        businesses: slotData.businesses
-      };
-    });
-  };
-  const getFeatureStyle = (feature) => {
-    let region = "default";
-    if (feature.properties && feature.properties.name) {
-      region = featureRegionMap[feature.properties.name] || "default";
-    }
-    const color = REGION_COLORS[region] || REGION_COLORS.default;
-    return {
-      color: "#333",  
-      weight: 1,      
-      fillColor: color,
-      fillOpacity: 2
-    };
-  };
-  const onEachFeature = (feature, layer) => {
-    let region = "Unknown";
-    if (feature.properties && feature.properties.name) {
-      region = featureRegionMap[feature.properties.name] || "Unknown";
-    }
-    layer.on({
-      mouseover: async (e) => {
-        try {
-          if (!feature.properties?.name) return;
-          const cityName = feature.properties.name
-            .toLowerCase()
-            .replace(/ and | & /g, ' & ')
-            .replace(/[-/]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .replace(/\b(county|district|borough|region|city of|the)\b/g, '')
-            .trim();
-          const locationId = cityToLocationMap[cityName];
-          if (!locationId) {
-            console.log('No location ID found for:', cityName);
-            layer.bindPopup(`<strong>${feature.properties.name}</strong>`);
-            return;
-          }
-          const serviceAvailability = await getServiceAvailability(locationId);
-          const filteredServices = selectedService 
-            ? serviceAvailability.filter(service => service.id === selectedService)
-            : serviceAvailability;
-            let popupContent = `
-              <div class="location-popup">
-                <h3>${feature.properties.name}</h3>
-                <div class="service-availability">
-                  <ul>
-            `;
-            filteredServices.forEach(service => {
-              console.log('Processing service:', service);
-              popupContent += `
-                <li class="service-item">
-                  <div class="service-header">
-                    <span class="service-name">${service.name}</span>
-                  </div>
-                  ${service.businesses.map(business => 
-                    `
-                    <div class="business-entry">
-                      <span class="service-dot" 
-                            style="background-color: ${service.color}"></span>
-                      <span class="business-name">${business.name}</span>
-                    </div>
-                  `).join('')}
-                </li>
-              `;
-            });
-          popupContent += `
-                </ul>
-              </div>
-            </div>
-          `;
-          layer.bindPopup(popupContent);
-          if (selectedService) {
-            layer.openPopup();
-          }
-        } catch (err) {
-          console.error('Error updating popup:', err);
-          layer.bindPopup(`<strong>${feature.properties.name}</strong><br>Error loading data`);
-        }
-      },
-      mouseout: (e) => {
-        if (layer._popup) {
-          layer.closePopup();
-        }
-      },
-      click: (e) => {
-        if (feature.properties?.name) {
-          layer.openPopup();
-        }
-      }
-    });
-  };
-  const getClientServiceColors = (clientId) => {
-    if (!clientServices[clientId] || !services) return ['#114859']; 
-    const serviceIds = clientServices[clientId];
-    const colors = serviceIds
-      .map(id => services[id]?.color || '#114859')
-      .filter(color => color); 
-    return colors.length > 0 ? colors : ['#114859'];
-  };
-  const getClientServiceNames = (clientId) => {
-    if (!clientServices[clientId] || !services) return []; 
-    
-    return clientServices[clientId]
-      .map(id => services[id]?.name)
-      .filter(name => name); 
-  };
   const RegionLegend = () => {
     return (
       <div className="region-legend">
@@ -547,7 +721,7 @@ useEffect(() => {
       </div>
     );
   };
-  const handleServiceClick = (serviceId) => {
+  const handleServiceClick = useCallback((serviceId) => {
     if (selectedService === serviceId) {
       setSelectedService(null);
       setActiveMarkers([]);
@@ -556,28 +730,50 @@ useEffect(() => {
     setSelectedService(serviceId);
     const clientsWithService = [];
     Object.entries(clientServices).forEach(([clientId, serviceIds]) => {
-      if (serviceIds.includes(serviceId)) {
+      if (serviceId === 'all' || serviceIds.includes(serviceId)) {
         clientsWithService.push(clientId);
       }
     });
     setActiveMarkers(clientsWithService);
+  }, [selectedService, clientServices]);
+  const shouldAnimateMarker = (clientId) => {
+    return activeMarkers.includes(clientId);
   };
-  const filteredClients = useMemo(() => {
-    if (!selectedService) return clients; 
-    return clients.filter(client => {
-      const serviceIds = clientServices[client.id] || [];
-      return serviceIds.includes(selectedService);
-    });
-  }, [clients, clientServices, selectedService]);
-  const isClientVisible = (clientId) => {
-    if (!selectedService) return true; 
-    const serviceIds = clientServices[clientId] || [];
-    return serviceIds.includes(selectedService);
+  const handleClientSelect = (client) => {
+    setSelectedClient(client);
   };
-  const ServiceButtons = () => {
+
+  // Add back the missing functions
+  const getClientServiceColors = useCallback((clientId) => {
+    if (!clientServices[clientId] || !services) return ['#114859']; 
+    const serviceIds = clientServices[clientId];
+    const colors = serviceIds
+      .map(id => services[id]?.color || '#114859')
+      .filter(color => color); 
+    return colors.length > 0 ? colors : ['#114859'];
+  }, [clientServices, services]);
+
+  const getClientServiceNames = useCallback((clientId) => {
+    if (!clientServices[clientId] || !services) return []; 
+    return clientServices[clientId]
+      .map(id => services[id]?.name)
+      .filter(name => name); 
+  }, [clientServices, services]);
+
+  // Add back ServiceButtons component
+  const ServiceButtons = useCallback(() => {
     return (
       <div className="service-buttons">
-        {servicesList.map(service => (
+        <button 
+          onClick={() => handleServiceClick('all')}
+          className={`service-button ${selectedService === 'all' ? 'active' : ''}`}
+          style={{ 
+            color: '#114859'
+          }}
+        >
+          ALL
+        </button>
+        {Object.values(services).map(service => (
           <button 
             key={service.id}
             onClick={() => handleServiceClick(service.id)}
@@ -591,13 +787,8 @@ useEffect(() => {
         ))}
       </div>
     );
-  };
-  const shouldAnimateMarker = (clientId) => {
-    return activeMarkers.includes(clientId);
-  };
-  const handleClientSelect = (client) => {
-    setSelectedClient(client);
-  };
+  }, [services, selectedService, handleServiceClick]);
+
   return (
     <div>
       <div className="header">
@@ -616,23 +807,16 @@ useEffect(() => {
       {error && <div className="error-message">Error loading data: {error}</div>}
       {loading && <div className="loading-message">Loading map data...</div>}
       <MapContainer
-        center={[54.5, -2.5]}
-        zoom={6}
+        center={DEFAULT_CENTER}
+        zoom={DEFAULT_ZOOM}
         style={{ height: "92vh", width: "100%" }}
-        maxBounds={bounds} 
+        maxBounds={mapBounds}
         maxBoundsViscosity={1.0}
         zoomSnap={0.5}
         ref={mapRef}
       >
-        <DynamicLabelSize setLabelSize={setLabelSize} />
-        {geoData && (
-          <GeoJSON
-            key={selectedService}
-            data={geoData}
-            style={getFeatureStyle}
-            onEachFeature={onEachFeature}
-          />
-        )}
+        <DynamicLabelSize />
+        {renderGeoJSONLayers()}
         {filteredClients.map((client) => {
           const serviceColors = getClientServiceColors(client.id);
           const serviceNames = getClientServiceNames(client.id);
@@ -781,6 +965,24 @@ useEffect(() => {
         
         .search-result-item:hover {
           background-color: #f5f5f5;
+        }
+        
+        .postcode-label {
+          background: none;
+          border: none;
+          box-shadow: none;
+        }
+        
+        .postcode-label div {
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 500;
+          font-size: 12px;
+          color: #333;
+          text-align: center;
+          white-space: nowrap;
+          transform-origin: center;
+          pointer-events: none;
         }
       `}</style>
     </div>
