@@ -403,10 +403,23 @@ const Map = () => {
       },
       mouseover: async (e) => {
         try {
+          console.log('Mouseover triggered');
+          console.log('Selected Service:', selectedService);
+          
+          // Don't show popup if no service is selected
+          if (!selectedService) {
+            console.log('No service selected, returning');
+            return;
+          }
+
           const locationId = feature.properties.locationId;
           const locationData = postcodeMap[feature.properties.postcodeInitials];
           
+          console.log('Location Data:', locationData);
+          console.log('Location ID:', locationId);
+          
           if (!locationId || !locationData) {
+            console.log('No location data found');
             layer.bindPopup(`<strong>${locationData?.city_name || 'Unknown Location'}</strong>`);
             layer.openPopup();
             return;
@@ -425,11 +438,14 @@ const Map = () => {
 
           const servicesByClient = {};
           const locationSpecificSlots = locationSlots[locationId] || {};
+          
+          console.log('Location Slots:', locationSpecificSlots);
+          console.log('Services:', services);
+          
+          // Get all services for this location, filtered by selected service
           const availableServices = Object.values(services)
             .filter(service => {
-              // If no service is selected or 'all' is selected, show all services
-              if (!selectedService || selectedService === 'all') return true;
-              // Otherwise, only show the selected service
+              if (selectedService === 'all') return true;
               return service.id === selectedService;
             })
             .map(service => {
@@ -446,6 +462,8 @@ const Map = () => {
               };
             });
 
+          console.log('Available Services:', availableServices);
+
           // Group services by client
           availableServices.forEach(service => {
             service.businesses.forEach(business => {
@@ -461,11 +479,12 @@ const Map = () => {
             });
           });
 
+          console.log('Services by Client:', servicesByClient);
+
           popupContent += `
             <div class="services-list">
               <h4>${selectedService === 'all' ? 'All Available Services' : 
-                   selectedService ? `Available ${services[selectedService]?.name || 'Services'}` : 
-                   'Available Services'}</h4>
+                   `Available ${services[selectedService]?.name || 'Services'}`}</h4>
           `;
 
           if (Object.keys(servicesByClient).length === 0) {
@@ -497,6 +516,8 @@ const Map = () => {
           popupContent += `
             </div>
           </div>`;
+
+          console.log('Popup Content:', popupContent);
 
           layer.bindPopup(popupContent, {
             maxWidth: 300,
@@ -722,12 +743,21 @@ const Map = () => {
     );
   };
   const handleServiceClick = useCallback((serviceId) => {
+    console.log('handleServiceClick called with:', serviceId);
+    console.log('Current selectedService:', selectedService);
+    
+    // If clicking the same service, deselect it
     if (selectedService === serviceId) {
+      console.log('Deselecting service');
       setSelectedService(null);
       setActiveMarkers([]);
       return;
     }
-    setSelectedService(serviceId);
+    
+    // If clicking a different service, select it
+    console.log('Setting new service:', serviceId);
+    
+    // Update active markers first
     const clientsWithService = [];
     Object.entries(clientServices).forEach(([clientId, serviceIds]) => {
       if (serviceId === 'all' || serviceIds.includes(serviceId)) {
@@ -735,6 +765,9 @@ const Map = () => {
       }
     });
     setActiveMarkers(clientsWithService);
+    
+    // Then update the selected service
+    setSelectedService(serviceId);
   }, [selectedService, clientServices]);
   const shouldAnimateMarker = (clientId) => {
     return activeMarkers.includes(clientId);
@@ -762,13 +795,25 @@ const Map = () => {
 
   // Add back ServiceButtons component
   const ServiceButtons = useCallback(() => {
+    console.log('Rendering ServiceButtons, selectedService:', selectedService);
     return (
       <div className="service-buttons">
         <button 
-          onClick={() => handleServiceClick('all')}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('ALL button clicked');
+            handleServiceClick('all');
+          }}
           className={`service-button ${selectedService === 'all' ? 'active' : ''}`}
           style={{ 
-            color: '#114859'
+            color: '#114859',
+            cursor: 'pointer',
+            padding: '8px 16px',
+            margin: '0 4px',
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            backgroundColor: selectedService === 'all' ? '#f0f0f0' : 'white'
           }}
         >
           ALL
@@ -776,10 +821,21 @@ const Map = () => {
         {Object.values(services).map(service => (
           <button 
             key={service.id}
-            onClick={() => handleServiceClick(service.id)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('Service button clicked:', service.name);
+              handleServiceClick(service.id);
+            }}
             className={`service-button ${selectedService === service.id ? 'active' : ''}`}
             style={{ 
-              color: service.color
+              color: service.color,
+              cursor: 'pointer',
+              padding: '8px 16px',
+              margin: '0 4px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              backgroundColor: selectedService === service.id ? '#f0f0f0' : 'white'
             }}
           >
             {service.name}
