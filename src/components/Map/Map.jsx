@@ -4,7 +4,7 @@
   import Logo from "../../assets/logo.png";
   import "./Map.css";
   import L from "leaflet";
-  import { centroid, point, booleanPointInPolygon } from '@turf/turf';
+  import { point, booleanPointInPolygon } from '@turf/turf';
   import { supabase } from "../../utils/supabaseClient";
   import dark_blue from "../../assets/markersImage/dark_blue.png";
   import dark_gray from "../../assets/markersImage/dark_gray.png";
@@ -18,6 +18,10 @@
   import pink from "../../assets/markersImage/pink.png";
   import red from "../../assets/markersImage/red.png";
   import yellow from "../../assets/markersImage/yellow.png";
+  import purple from "../../assets/markersImage/purple.png";
+  import { LiaMapMarkerSolid } from "react-icons/lia";
+  
+// import { LiaMapMarkerSolid } from 'lucide-react';
   L.Marker.prototype.options.icon = L.divIcon({className: 'hidden-marker'});
   const jumpMarkerAnimation = `
     @keyframes markerJump {
@@ -179,36 +183,43 @@
     'South East': '#b68d03', 
     'Northern Ireland': '#7b7a75', 
     'East Anglia': '#7b7a75',
-    'default': '#cccccc'  // Add a default color
+    'default': '#cccccc'  
   };
   const markerImages = {
-    "#114859": dark_blue,
-    "#555555": dark_gray,
-    "#006400": dark_green,
-    "#00FF00": green,
-    "#ADD8E6": light_blue,
-    "#90EE90": light_green,
-    "#8B0000": mairum_red,
-    "#FFA500": orange,
-    "#FFC0CB": pink,
-    "#FF0000": red,
-    "#FFFF00": yellow
+    "#0236ec": dark_blue,    // Electrical
+    "#18c6e6": light_green,   // ASHP
+    "#FF6000": orange,       // Damp proofing
+    "#B407F9": purple,         // Solar
+    "#318BFF": light_blue,   // Cooling
+    "#d10216": red,          // Heating
+    "#006400": dark_green,   // EV Chargers
+    "#00E3D8": light_blue    // Pool Cleaning
   };
   const getClosestMarkerImage = (color) => {
-    if (!color) return dark_blue;
+    if (!color || typeof color !== 'string') return dark_blue;
+    
+    // Exact match first
     if (markerImages[color]) return markerImages[color];
-    if (color.startsWith('#')) {
-      if (color.includes('00') && color.includes('FF')) return green;
-      if (color.toLowerCase().includes('ff')) return red;
-      if (color.toLowerCase().includes('00')) return light_blue;
-      if (color.toLowerCase().includes('ee')) return yellow;
-      if (color.toLowerCase().includes('cc')) return orange;
-      if (color.toLowerCase().includes('aa')) return pink;
-      if (color.toLowerCase().includes('88')) return light_blue;
-      if (color.toLowerCase().includes('66')) return light_green;
-      if (color.toLowerCase().includes('44')) return dark_green;
-      if (color.toLowerCase().includes('22')) return dark_blue;
+    
+    // Lowercase for case-insensitive matching
+    color = color.toLowerCase();
+    
+    // Specific color mappings
+    const colorMappings = {
+      'blue': light_blue,
+      'red': red,
+      'green': dark_green,
+      'orange': orange,
+      'pink': pink,
+      'yellow': yellow
+    };
+    
+    // Check for color keywords
+    for (const [keyword, image] of Object.entries(colorMappings)) {
+      if (color.includes(keyword)) return image;
     }
+    
+    // Fallback
     return dark_blue;
   };
   const createMarkerIcon = (colors) => {
@@ -400,97 +411,89 @@
         },
         mouseover: async (e) => {
           try {
+            console.log("SELECTED SERVICE------------", selectedService);
+            if (selectedService === null) return;
             const locationId = feature.properties.locationId;
             const locationData = postcodeMap[feature.properties.postcodeInitials];
+            console.log("LOCATION ID------------", locationId);
             console.log("LOCATION DATA------------", locationData);
-            
             if (!locationId || !locationData) {
               layer.bindPopup(`<strong>${locationData?.city_name || 'Unknown Location'}</strong>`);
               layer.openPopup();
               return;
             }
-            
+    
             let popupContent = `
               <div class="location-services-popup">
                 <h3 style="text-align: center; margin-bottom: 10px;">${locationData.city_name}</h3>
-                <hr>
+                <hr style="margin: 10px 0;">
             `;
-            
+    
             const servicesByBusiness = {};
-            
-            // Get service availability for this location
             const availableServices = getServiceAvailability(locationId);
-            console.log("Available Services for Location:", availableServices);
             
-            availableServices.forEach(service => {
-              console.log("Processing Service:", service);
-              const locationSpecificSlots = locationSlots[locationId]?.[service.id] || {
+            // Filter services based on selection
+            let servicesToDisplay = availableServices;
+            if (selectedService !== 'all') {
+              servicesToDisplay = availableServices.filter(service => service.id === selectedService);
+            }
+    
+            servicesToDisplay.forEach(service => {
+              const slotData = locationSlots[locationId]?.[service.id] || {
                 totalSlots: 2,
                 usedSlots: 0,
                 businesses: []
               };
               
-              locationSpecificSlots.businesses.forEach(business => {
+              slotData.businesses.forEach(business => {
                 if (!servicesByBusiness[business.name]) {
                   servicesByBusiness[business.name] = [];
                 }
                 servicesByBusiness[business.name].push({
                   serviceName: service.name,
                   serviceColor: service.color,
-                  slotsUsed: locationSpecificSlots.usedSlots,
-                  totalSlots: locationSpecificSlots.totalSlots
+                  slotsUsed: slotData.usedSlots,
+                  totalSlots: slotData.totalSlots
                 });
               });
             });
-            
+    
+            // Build popup content
             Object.entries(servicesByBusiness).forEach(([businessName, businessServices]) => {
               popupContent += `
                 <div class="business-services">
                   <h4>${businessName}</h4>
-                  <ul>
+                  <ul style="list-style-type: none; padding: 0;">
               `;
-              
               businessServices.forEach(service => {
                 const availabilityClass = service.slotsUsed >= service.totalSlots 
                   ? 'service-full' 
                   : 'service-available';
-                
                 popupContent += `
                   <li>
-                    <span 
-                      class="service-dot ${availabilityClass}" 
-                      style="background-color: ${service.serviceColor}"
-                    ></span>
-                    ${service.serviceName} 
-                    (${service.slotsUsed}/${service.totalSlots} slots)
+                    <span class="service-dot ${availabilityClass}" 
+                          style="background-color: ${service.serviceColor}"></span>
+                    ${service.serviceName} (${service.slotsUsed}/${service.totalSlots} slots)
                   </li>
                 `;
               });
-              
-              popupContent += `
-                  </ul>
-                </div>
-              `;
+              popupContent += `</ul></div>`;
             });
-            
+    
             if (Object.keys(servicesByBusiness).length === 0) {
               popupContent += `
                 <div class="no-services">
-                  <p>No services allocated for this location</p>
+                  <p>No ${selectedService === 'all' ? 'services' : 'slots'} allocated for this location</p>
                 </div>
               `;
             }
-            
+    
             popupContent += `</div>`;
-            
-            layer.bindPopup(popupContent, {
-              maxWidth: 300,
-              className: 'location-services-tooltip'
-            });
+            layer.bindPopup(popupContent, { maxWidth: 300, className: 'location-services-tooltip' });
             layer.openPopup(e.latlng);
           } catch (err) {
             console.error('Error updating popup:', err);
-            layer.bindPopup(`<strong>Unknown Location</strong><br>Error loading data`);
+            layer.bindPopup(`<strong>Error loading data</strong>`);
             layer.openPopup(e.latlng);
           }
         },
@@ -511,13 +514,13 @@
     const renderGeoJSONLayers = useCallback(() => {
       return processedGeoData.map((data, index) => (
         <GeoJSON
-          key={`geojson-${index}`}
+          key={`geojson-${index}-${selectedService}`} // Add selectedService to the key
           data={data}
           style={getFeatureStyle}
           onEachFeature={onEachFeature}
         />
       ));
-    }, [processedGeoData, getFeatureStyle, onEachFeature]);
+    }, [processedGeoData, getFeatureStyle, onEachFeature, selectedService]);
 
     // Memoize the filtered clients
     const filteredClients = useMemo(() => {
@@ -753,7 +756,10 @@
             onClick={() => handleServiceClick('all')}
             className={`service-button ${selectedService === 'all' ? 'active' : ''}`}
             style={{ 
-              color: '#114859'
+              color: '#114859',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}
           >
             ALL
@@ -764,9 +770,17 @@
               onClick={() => handleServiceClick(service.id)}
               className={`service-button ${selectedService === service.id ? 'active' : ''}`}
               style={{ 
-                color: service.color
+                color: service.color,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
               }}
             >
+              <LiaMapMarkerSolid 
+                color={service.color} 
+                size={16} 
+                style={{ marginRight: '4px' }} 
+              />
               {service.name}
             </button>
           ))}
@@ -794,7 +808,7 @@
         <MapContainer
           center={DEFAULT_CENTER}
           zoom={DEFAULT_ZOOM}
-          style={{ height: "92vh", width: "100%" }}
+          style={{ height: "88vh", width: "100%" }}
           maxBounds={mapBounds}
           maxBoundsViscosity={1.0}
           zoomSnap={0.5}

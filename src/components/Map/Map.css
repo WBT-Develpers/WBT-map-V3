@@ -156,7 +156,8 @@ body {
   .legend-item {
     display: flex;
     align-items: center;
-    margin-bottom: 5px;
+    margin-bottom: 5px !important;
+    font-size: 12px !important;
   }
   .color-box {
     width: 16px;
@@ -218,7 +219,7 @@ body {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 14px 3px;
+  padding: 14px 3px 3px 3px;
 }
 .service-button::after {
   content: '';
@@ -462,4 +463,11 @@ body {
   .service-buttons {
     justify-content: center;
   }
+}
+
+.service-marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
 }
