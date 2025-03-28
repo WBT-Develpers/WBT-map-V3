@@ -371,7 +371,7 @@
                   html: `<div style="
                     padding: 4px 8px;
                     font-size: 14px;
-                    font-weight: bold;
+                    font-weight: 600;
                     color: #333;
                     white-space: nowrap;
                     line-height: 1;
