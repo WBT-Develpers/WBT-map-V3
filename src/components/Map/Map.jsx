@@ -7,12 +7,9 @@
   import { point, booleanPointInPolygon } from '@turf/turf';
   import { supabase } from "../../utils/supabaseClient";
   import dark_blue from "../../assets/markersImage/dark_blue.png";
-  import dark_gray from "../../assets/markersImage/dark_gray.png";
   import dark_green from "../../assets/markersImage/dark_green.png";
-  import green from "../../assets/markersImage/green.png";
   import light_blue from "../../assets/markersImage/light_blue.png";
   import light_green from "../../assets/markersImage/light_green.png";
-  import mairum_red from "../../assets/markersImage/mairum_red.png";
   import multiplecolor from "../../assets/markersImage/multiplecolor.png";
   import orange from "../../assets/markersImage/orange.png";
   import pink from "../../assets/markersImage/pink.png";
@@ -20,9 +17,9 @@
   import yellow from "../../assets/markersImage/yellow.png";
   import purple from "../../assets/markersImage/purple.png";
   import { LiaMapMarkerSolid } from "react-icons/lia";
-  
-// import { LiaMapMarkerSolid } from 'lucide-react';
+
   L.Marker.prototype.options.icon = L.divIcon({className: 'hidden-marker'});
+
   const jumpMarkerAnimation = `
     @keyframes markerJump {
       0% { transform: translateY(0); }
@@ -175,36 +172,30 @@
   };
   const REGION_COLORS = {
     'Scotland': '#d81e1e', 
-    'North': '#f7db26', 
-    'North West': '#65d1f9', 
-    'Midlands': '#f18315', 
-    'Wales': '#e97ccb', 
-    'South West ': '#44f02c', 
-    'South East': '#b68d03', 
-    'Northern Ireland': '#7b7a75', 
-    'East Anglia': '#7b7a75',
+    'North': '#F18F01', 
+    'North West': '#2E86AB', 
+    'Midlands': '#DD9787', 
+    'Wales': '#E1DABD', 
+    'South West ': '#91C4F2', 
+    'South East': '#FFFF00', 
+    'Northern Ireland': '#808080', 
+    'East Anglia': '#EEEEEE',
     'default': '#cccccc'  
   };
   const markerImages = {
-    "#0236ec": dark_blue,    // Electrical
-    "#18c6e6": light_green,   // ASHP
-    "#FF6000": orange,       // Damp proofing
-    "#B407F9": purple,         // Solar
-    "#318BFF": light_blue,   // Cooling
-    "#d10216": red,          // Heating
-    "#006400": dark_green,   // EV Chargers
-    "#00E3D8": light_blue    // Pool Cleaning
+    "#0236ec": dark_blue,    
+    "#18c6e6": light_green,  
+    "#FF6000": orange,      
+    "#B407F9": purple,       
+    "#318BFF": light_blue,  
+    "#d10216": red,          
+    "#006400": dark_green,  
+    "#00E3D8": light_blue   
   };
   const getClosestMarkerImage = (color) => {
     if (!color || typeof color !== 'string') return dark_blue;
-    
-    // Exact match first
     if (markerImages[color]) return markerImages[color];
-    
-    // Lowercase for case-insensitive matching
     color = color.toLowerCase();
-    
-    // Specific color mappings
     const colorMappings = {
       'blue': light_blue,
       'red': red,
@@ -213,13 +204,9 @@
       'pink': pink,
       'yellow': yellow
     };
-    
-    // Check for color keywords
     for (const [keyword, image] of Object.entries(colorMappings)) {
       if (color.includes(keyword)) return image;
     }
-    
-    // Fallback
     return dark_blue;
   };
   const createMarkerIcon = (colors) => {
@@ -250,10 +237,7 @@
       }
     }).filter(Boolean);
   };
-
   const geojsonFiles = importAllGeojsons();
-
-  // Add these constants at the top level
   const DEFAULT_CENTER = [54.5, -2.5];
   const DEFAULT_ZOOM = 6;
   const CLUSTER_OPTIONS = {
@@ -263,7 +247,6 @@
     zoomToBoundsOnClick: true,
     disableClusteringAtZoom: 15
   };
-
   const Map = () => { 
     const [clients, setClients] = useState([]);
     const [services, setServices] = useState({});
@@ -281,11 +264,9 @@
 
     const processedGeoData = useMemo(() => {
       if (!geojsonFiles.length || Object.keys(postcodeMap).length === 0) return [];
-      
       return geojsonFiles.map(geojsonData => {
         const postcodeInitials = geojsonData.fileName; 
         const locationData = postcodeMap[postcodeInitials]; 
-        
         const features = geojsonData.features.map(feature => {
           feature.properties.postcodeInitials = postcodeInitials; 
           if (locationData) {
@@ -298,19 +279,16 @@
           }
           return feature;
         });
-        
         return { ...geojsonData, features };
       });
     }, [geojsonFiles, postcodeMap]);
 
-    // Memoize the bounds calculation
     const mapBounds = useMemo(() => {
       if (!processedGeoData.length) return null;
       const geojsonLayer = L.geoJSON(processedGeoData);
       return geojsonLayer.getBounds();
     }, [processedGeoData]);
 
-    // Memoize the feature style function
     const getFeatureStyle = useCallback((feature) => {
       const color = feature.properties?.color || REGION_COLORS.default;
       return {
@@ -321,7 +299,6 @@
       };
     }, []);
 
-    // Memoize the onEachFeature function
     const getServiceAvailability = useCallback((locationId) => {
       console.log("LOCATION ID------------", locationId);
       if (!locationId || !locationSlots[locationId]) {
@@ -431,8 +408,6 @@
     
             const servicesByBusiness = {};
             const availableServices = getServiceAvailability(locationId);
-            
-            // Filter services based on selection
             let servicesToDisplay = availableServices;
             if (selectedService !== 'all') {
               servicesToDisplay = availableServices.filter(service => service.id === selectedService);
@@ -457,8 +432,6 @@
                 });
               });
             });
-    
-            // Build popup content
             Object.entries(servicesByBusiness).forEach(([businessName, businessServices]) => {
               popupContent += `
                 <div class="business-services">
@@ -510,11 +483,10 @@
       });
     }, [selectedService, postcodeMap, locationSlots, services, findLabelPosition]);
 
-    // Memoize the GeoJSON layers rendering
     const renderGeoJSONLayers = useCallback(() => {
       return processedGeoData.map((data, index) => (
         <GeoJSON
-          key={`geojson-${index}-${selectedService}`} // Add selectedService to the key
+          key={`geojson-${index}-${selectedService}`} 
           data={data}
           style={getFeatureStyle}
           onEachFeature={onEachFeature}
@@ -522,7 +494,6 @@
       ));
     }, [processedGeoData, getFeatureStyle, onEachFeature, selectedService]);
 
-    // Memoize the filtered clients
     const filteredClients = useMemo(() => {
       if (!selectedService) return clients;
       if (selectedService === 'all') return clients;
@@ -731,7 +702,6 @@
       setSelectedClient(client);
     };
 
-    // Add back the missing functions
     const getClientServiceColors = useCallback((clientId) => {
       if (!clientServices[clientId] || !services) return ['#114859']; 
       const serviceIds = clientServices[clientId];
@@ -748,7 +718,6 @@
         .filter(name => name); 
     }, [clientServices, services]);
 
-    // Add back ServiceButtons component
     const ServiceButtons = useCallback(() => {
       return (
         <div className="service-buttons">
@@ -759,7 +728,6 @@
               color: '#114859',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
             }}
           >
             ALL
@@ -860,7 +828,7 @@
               </MarkerRef>
             );
           })}
-          <div className="leaflet-bottom leaflet-right">
+          <div className="leaflet-right">
             <div className="leaflet-control leaflet-bar region-legend-container">
               <RegionLegend />
             </div>
