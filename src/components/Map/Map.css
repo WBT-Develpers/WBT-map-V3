@@ -193,8 +193,7 @@ body {
   display: flex;
   align-items: center;
   width: 100%;
-  justify-content: space-between;
-  border-bottom: solid 1px gainsboro;
+
   padding: 10px 20px;
 }
 .client-search-input {
@@ -485,4 +484,38 @@ body {
 
 .leaflet-control-attribution a {
   display: none !important;
+}
+
+.postcode-label {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+  pointer-events: none !important;
+}
+
+.postcode-label div {
+  width: 60px !important;
+  height: 30px !important;
+  font-size: 14px !important;
+  font-weight: 600;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transform: none !important;
+}
+
+
+.header-top {
+display: flex;
+align-items: center;
+border-bottom: solid 1px gainsboro;
+}
+
+.leaflet-container {
+  transition: transform 0.3s ease-out;
+}
+
+.leaflet-zoom-animated {
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
 }

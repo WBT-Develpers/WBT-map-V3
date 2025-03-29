@@ -4,7 +4,11 @@
   import Logo from "../../assets/logo.png";
   import "./Map.css";
   import L from "leaflet";
-  import { point, booleanPointInPolygon } from '@turf/turf';
+  import centroid from '@turf/centroid';
+  import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+  import simplify from '@turf/simplify';
+  import pointOnFeature from '@turf/point-on-feature';
+  import area from '@turf/area';
   import { supabase } from "../../utils/supabaseClient";
   import dark_blue from "../../assets/markersImage/dark_blue.png";
   import dark_green from "../../assets/markersImage/dark_green.png";
@@ -17,6 +21,7 @@
   import yellow from "../../assets/markersImage/yellow.png";
   import purple from "../../assets/markersImage/purple.png";
   import { LiaMapMarkerSolid } from "react-icons/lia";
+  import RegionSidebar from "../RegionSidebar/RegionSidebar";
 
   L.Marker.prototype.options.icon = L.divIcon({className: 'hidden-marker'});
 
@@ -104,7 +109,10 @@
         map.flyTo(
           [parseFloat(client.lat), parseFloat(client.lang)], 
           10,
-          { duration: 1.5 } 
+          { 
+            duration: 1.5,
+            easeLinearity: 0.25  
+          }
         );
       }
     };
@@ -176,8 +184,8 @@
     'North West': '#2E86AB', 
     'Midlands': '#DD9787', 
     'Wales': '#E1DABD', 
-    'South West ': '#91C4F2', 
-    'South East': '#FFFF00', 
+    'South West ': '#D7CF07', 
+    'South East': '#BEB2C8', 
     'Northern Ireland': '#808080', 
     'East Anglia': '#EEEEEE',
     'default': '#cccccc'  
@@ -261,6 +269,9 @@
     const [cityToLocationMap, setCityToLocationMap] = useState({});
     const [selectedClient, setSelectedClient] = useState(null);
     const [postcodeMap, setPostcodeMap] = useState({});
+    const [selectedRegion, setSelectedRegion] = useState(null);
+    const [selectedCityId, setSelectedCityId] = useState(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     const processedGeoData = useMemo(() => {
       if (!geojsonFiles.length || Object.keys(postcodeMap).length === 0) return [];
@@ -291,13 +302,53 @@
 
     const getFeatureStyle = useCallback((feature) => {
       const color = feature.properties?.color || REGION_COLORS.default;
+      const isSelected = selectedRegion === feature.properties.region;
+      const isSelectedCity = selectedCityId && selectedCityId === feature.properties.locationId;
+      
       return {
-        color: "#ffffff",
-        weight: 1,
+        color: isSelected || isSelectedCity ? "#ffffff" : "#ffffff",
+        weight: isSelected || isSelectedCity ? 2 : 1,
         fillColor: color,
-        fillOpacity: 1
+        fillOpacity: isSelectedCity ? 0.8 : isSelected ? 0.6 : 1
       };
-    }, []);
+    }, [selectedRegion, selectedCityId]);
+
+    const handleRegionSelect = (region, cityId = null) => {
+      if (!region && !cityId) {
+        // Clear selection when closing sidebar
+        setSelectedRegion(null);
+        setSelectedCityId(null);
+        return;
+      }
+      setSelectedRegion(region);
+      setSelectedCityId(cityId);
+      if (mapRef.current) {
+        const map = mapRef.current;
+        const regionFeatures = [];
+        processedGeoData.forEach(geojsonData => {
+          geojsonData.features.forEach(feature => {
+            if (feature.properties.region === region) {
+              regionFeatures.push(feature);
+              if (cityId && feature.properties.locationId === cityId) {
+                const featureLayer = L.geoJSON(feature);
+                map.fitBounds(featureLayer.getBounds(), { 
+                  padding: [100, 100],
+                  duration: 1  // Animate the transition
+                });
+              }
+            }
+          });
+        });
+        if (regionFeatures.length > 0 && !cityId) {
+          const regionsLayer = L.geoJSON(regionFeatures);
+          map.fitBounds(regionsLayer.getBounds(), { 
+            padding: [50, 50],
+            duration: 1.5,
+            easeLinearity: 0.3
+          });
+        }
+      }
+    };
 
     const getServiceAvailability = useCallback((locationId) => {
       console.log("LOCATION ID------------", locationId);
@@ -327,63 +378,44 @@
 
     const findLabelPosition = useCallback((feature) => {
       try {
-        const bounds = L.geoJSON(feature).getBounds();
-        const center = bounds.getCenter();
-        
-        const centerPoint = point([center.lng, center.lat]);
-        
-        if (booleanPointInPolygon(centerPoint, feature)) {
-          return [center.lat, center.lng];
+        const simplified = simplify(feature, { tolerance: 0.01, highQuality: true });
+        let center = centroid(simplified);
+        if (booleanPointInPolygon(center, simplified)) {
+          return center.geometry.coordinates.reverse();
         }
-        
-        const points = [
-          bounds.getCenter(),
-          bounds.getNorthWest(),
-          bounds.getNorthEast(),
-          bounds.getSouthWest(),
-          bounds.getSouthEast()
-        ];
-        
-        for (let pt of points) {
-          const pointFeature = point([pt.lng, pt.lat]);
-          if (booleanPointInPolygon(pointFeature, feature)) {
-            return [pt.lat, pt.lng];
+        if (simplified.geometry.type === 'MultiPolygon') {
+          const largestPolygon = simplified.geometry.coordinates
+            .map(poly => ({ poly, size: area({ type: 'Polygon', coordinates: poly }) }))
+            .reduce((a, b) => a.size > b.size ? a : b).poly;
+          center = centroid({ type: 'Polygon', coordinates: largestPolygon });
+          if (booleanPointInPolygon(center, simplified)) {
+            return center.geometry.coordinates.reverse();
           }
         }
-        
-        return [center.lat, center.lng];
+        const pt = pointOnFeature(simplified);
+        return pt.geometry.coordinates.reverse(); 
+    
       } catch (error) {
         console.error('Error finding label position:', error);
         return null;
       }
     }, []);
-
     const onEachFeature = useCallback((feature, layer) => {
       layer.on({
         add: (e) => {
-          if (feature.properties.postcodeInitials) {
-            const labelPosition = findLabelPosition(feature);
-            
-            if (labelPosition) {
-              const label = L.marker(labelPosition, {
-                icon: L.divIcon({
-                  className: 'postcode-label',
-                  html: `<div style="
-                    padding: 4px 8px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    color: #333;
-                    white-space: nowrap;
-                    line-height: 1;
-                  ">${feature.properties.postcodeInitials}</div>`,
-                  iconSize: [60, 30],
-                  iconAnchor: [30, 15]
-                }),
-                interactive: false,
-                zIndexOffset: 1000
-              });
-              label.addTo(e.target._map);
-            }
+          const labelPosition = findLabelPosition(feature);
+          if (labelPosition) {
+            const label = L.marker(labelPosition, {
+              icon: L.divIcon({
+                className: 'postcode-label',
+                html: `<div>${feature.properties.postcodeInitials}</div>`,
+                iconSize: [60, 30],
+                iconAnchor: [30, 15], 
+                popupAnchor: [0, -15]
+              }),
+              interactive: false,
+              zIndexOffset: 1000
+            }).addTo(e.target._map);
           }
         },
         mouseover: async (e) => {
@@ -538,7 +570,6 @@
           const { data } = await supabase
             .from('locations')
             .select('id, region, postcode_initials, city_name');
-          
           const postcodeMap = {};
           data.forEach(location => {
             postcodeMap[location.postcode_initials] = {
@@ -759,14 +790,26 @@
     return (
       <div>
         <div className="header">
-          <div className="header-left">
+          <div className="header-top">
+<div className="header-left">
+            <button 
+              className="sidebar-toggle"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            >
+              ☰
+            </button>
             <img className="logo" src={Logo} alt="Logo" /> 
+          </div>
+          <div className="header-center">
             <ClientSearch 
               clients={clients} 
               onSelectClient={handleClientSelect}
               mapRef={mapRef} 
             />
           </div>
+          </div>
+          
+          
           <div className="header-right">
             <ServiceButtons />
           </div>
@@ -779,7 +822,9 @@
           style={{ height: "88vh", width: "100%" }}
           maxBounds={mapBounds}
           maxBoundsViscosity={1.0}
-          zoomSnap={0.5}
+          zoomSnap={0.1}       
+          zoomDelta={0.25}      
+          wheelPxPerZoomLevel={100}  
           ref={mapRef}
         >
           <DynamicLabelSize />
@@ -828,12 +873,14 @@
               </MarkerRef>
             );
           })}
-          <div className="leaflet-right">
-            <div className="leaflet-control leaflet-bar region-legend-container">
-              <RegionLegend />
-            </div>
-          </div>
         </MapContainer>
+        <RegionSidebar 
+          isOpen={isSidebarOpen}
+          setIsOpen={setIsSidebarOpen}
+          regions={Object.keys(REGION_COLORS).filter(r => r !== 'default')}
+          postcodeMap={postcodeMap}
+          onRegionSelect={handleRegionSelect}
+        />
         <style>{`
           .service-status {
             display: inline-block;
